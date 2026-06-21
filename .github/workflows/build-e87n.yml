@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout source
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install build dependencies
         run: |
@@ -160,7 +160,7 @@ jobs:
           make -j$(nproc) V=s
 
       - name: Upload firmware artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: E87N-CatWrt-firmware
           path: bin/targets/mediatek/filogic/*edgepi_e87n*
