@@ -25,45 +25,42 @@ jobs:
 
       - name: Add CatWrt custom layer
         run: |
-          git clone --depth=1 https://ghproxy.com/https://github.com/miaoermua/catwrt_base.git package/catwrt-base
+          git clone --depth=1 https://github.com/miaoermua/catwrt_base.git package/catwrt-base
 
-      - name: Custom DTS for EdgePi E87N (fan + SPI screen)
+      - name: Custom DTS for EdgePi E87N (fan + SPI bus)
         run: |
           DTS_FILE="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7987-edgepi-e87n.dts"
           
-          # 1. 复制基础模板
+          # 复制原生硬件模板
           cp target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7987-gl-mt5000.dts "$DTS_FILE"
           
-          # 2. 修改设备名
+          # 修改设备型号标识
           sed -i 's/GL.iNet GL-MT5000/EdgePi E87N/g' "$DTS_FILE"
           
-          # 3. 禁用无线节点
+          # 禁用无线硬件节点
           sed -i '/&wifi {/a\\tstatus = "disabled";' "$DTS_FILE"
           sed -i '/&wifi_2_5g {/a\\tstatus = "disabled";' "$DTS_FILE"
           
-          # 4. 启用PWM控制器（追加到文件末尾，板级覆盖）
+          # 追加配置：启用PWM控制器 + 风扇节点（根节点叠加语法，零位置错误）
           cat >> "$DTS_FILE" << 'EOF'
 
+          /* 启用PWM硬件控制器 */
           &pwm {
               status = "okay";
           };
-          EOF
-          
-          # 5. 插入PWM风扇节点到根节点内部（闭合前）
-          sed -i '/^};/i\
-          \
-          \t/* PWM温控风扇 - 原厂参数1:1匹配 */\
-          \tpwm_fan: pwm-fan {\
-          \t\tcompatible = "pwm-fan";\
-          \t\tpwms = <&pwm 1 50000 0>;\
-          \t\t#cooling-cells = <2>;\
-          \t\tcooling-levels = <0 10 20 30 40 50 60 70 80 90 100 110 120 130 140 150 160 170 180 190 200 220 240 250 255>;\
-          \t\tstatus = "okay";\
-          \t};' "$DTS_FILE"
-          
-          # 6. 启用SPI2总线（用户态屏幕驱动用）
-          cat >> "$DTS_FILE" << 'EOF'
 
+          /* 向根节点追加PWM温控风扇 - 原厂参数1:1匹配 */
+          / {
+              pwm_fan: pwm-fan {
+                  compatible = "pwm-fan";
+                  pwms = <&pwm 1 50000 0>;
+                  #cooling-cells = <2>;
+                  cooling-levels = <0 10 20 30 40 50 60 70 80 90 100 110 120 130 140 150 160 170 180 190 200 220 240 250 255>;
+                  status = "okay";
+              };
+          };
+
+          /* 启用SPI2总线（原厂显示插件硬件基础） */
           &spi2 {
               status = "okay";
           };
@@ -78,7 +75,7 @@ jobs:
             DEVICE_MODEL := E87N
             DEVICE_DTS := mt7987-edgepi-e87n
             DEVICE_PACKAGES := kmod-mtk-hnat luci-app-mtk luci-app-turboacc \
-              kmod-hwmon-pwmfan kmod-thermal luci-app-oled \
+              kmod-hwmon-pwmfan kmod-thermal \
               -kmod-mt76 -hostapd -wpad-basic -kmod-cfg80211 -wpad-openssl
             IMAGES := emmc-gpt.img sysupgrade.bin
             IMAGE/emmc-gpt.img := mt798x-emmc-img
@@ -90,17 +87,15 @@ jobs:
 
       - name: Update and install feeds
         run: |
-          # 替换为国内镜像加速
-          sed -i 's|https://github.com/immortalwrt/|https://ghproxy.com/https://github.com/immortalwrt/|g' feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       - name: Generate final build config
         run: |
-          # 加载CatWrt默认优化配置
+          # 加载CatWrt平台默认优化配置
           cp -f package/catwrt-base/config/mt798x-default.config .config
           
-          # 追加核心配置（单引号块，不解析变量）
+          # 追加自定义配置
           cat >> .config << 'EOF'
           # 目标设备
           CONFIG_TARGET_mediatek_filogic_DEVICE_edgepi_e87n=y
@@ -113,26 +108,21 @@ jobs:
           CONFIG_PACKAGE_kmod-mtk-hnat=y
           CONFIG_PACKAGE_luci-app-mtk=y
           
-          # 关闭软件转发，避免与HNAT冲突
+          # 关闭软件转发，避免与HNAT硬件加速冲突
           CONFIG_PACKAGE_luci-app-turboacc=y
           CONFIG_PACKAGE_kmod-fast-classifier=n
           CONFIG_PACKAGE_kmod-shortcut-fe=n
           CONFIG_PACKAGE_kmod-ipt-offload=n
           
-          # 风扇驱动
+          # 风扇驱动与温控
           CONFIG_PACKAGE_kmod-hwmon-pwmfan=y
           CONFIG_PACKAGE_kmod-thermal=y
-          
-          # 屏幕用户态驱动
-          CONFIG_PACKAGE_luci-app-oled=y
           
           # 常用预装插件
           CONFIG_PACKAGE_luci-app-ddns=y
           CONFIG_PACKAGE_luci-app-upnp=y
-          CONFIG_PACKAGE_luci-app-wol=y
           CONFIG_PACKAGE_luci-app-statistics=y
           CONFIG_PACKAGE_luci-app-autoreboot=y
-          CONFIG_PACKAGE_luci-app-display=y
           CONFIG_PACKAGE_luci-app-fancontrol=y
           CONFIG_PACKAGE_luci-app-timewol=y
           CONFIG_PACKAGE_luci-app-nlbwmon=y
@@ -140,13 +130,16 @@ jobs:
           CONFIG_PACKAGE_ethtool=y
           CONFIG_PACKAGE_tcpdump=y
           
-          # 关闭无线内核组件
+          # 移除无线内核组件
           CONFIG_PACKAGE_kmod-cfg80211=n
           CONFIG_PACKAGE_kmod-mac80211=n
           EOF
           
-          # 单独追加日期版本号（解析变量）
+          # 追加日期版本号（变量解析）
           echo "CONFIG_VERSION_NUMBER=\"$(date +%Y%m%d)\"" >> .config
+          
+          # 替换固件内置opkg源为清华大学镜像（刷机后国内使用）
+          sed -i 's|https://downloads.immortalwrt.org|https://mirrors.tuna.tsinghua.edu.cn/immortalwrt|g' package/base-files/files/etc/opkg/distfeeds.conf
           
           # 自动补全所有依赖
           make defconfig
