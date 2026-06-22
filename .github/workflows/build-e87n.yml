@@ -31,17 +31,18 @@ jobs:
         run: |
           DTS_FILE="target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7987-edgepi-e87n.dts"
           
-          # 复制原生硬件模板
-          cp target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7987-gl-mt5000.dts "$DTS_FILE"
+          # 改用MT7986A成熟模板（与MT7987A架构兼容，外设寄存器完全一致）
+          cp target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7986a-bananapi-bpi-r3.dts "$DTS_FILE"
           
-          # 修改设备型号标识
-          sed -i 's/GL.iNet GL-MT5000/EdgePi E87N/g' "$DTS_FILE"
+          # 修改设备型号标识与兼容字符串
+          sed -i 's/Bananapi BPI-R3/EdgePi E87N/g' "$DTS_FILE"
+          sed -i 's/bananapi,bpi-r3/edgepi,e87n/g' "$DTS_FILE"
           
-          # 禁用无线硬件节点
-          sed -i '/&wifi {/a\\tstatus = "disabled";' "$DTS_FILE"
-          sed -i '/&wifi_2_5g {/a\\tstatus = "disabled";' "$DTS_FILE"
+          # 禁用双无线节点（MT7986A节点名为wifi0/wifi1，修正匹配）
+          sed -i '/&wifi0 {/a\\tstatus = "disabled";' "$DTS_FILE"
+          sed -i '/&wifi1 {/a\\tstatus = "disabled";' "$DTS_FILE"
           
-          # 追加配置：启用PWM控制器 + 风扇节点（根节点叠加语法，零位置错误）
+          # 追加硬件自定义配置
           cat >> "$DTS_FILE" << 'EOF'
 
           /* 启用PWM硬件控制器 */
@@ -49,7 +50,7 @@ jobs:
               status = "okay";
           };
 
-          /* 向根节点追加PWM温控风扇 - 原厂参数1:1匹配 */
+          /* 根节点追加PWM温控风扇 - 原厂参数1:1匹配 */
           / {
               pwm_fan: pwm-fan {
                   compatible = "pwm-fan";
